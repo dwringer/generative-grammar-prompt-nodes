@@ -28,6 +28,6 @@ prompt:
 **Three nodes are included:**
 - *Lookup Table from File* - loads a YAML file "prompt" section (or of a whole folder of YAML's) into a JSON-ified dictionary (Lookups output)
 - *Lookups Entry from Prompt* - places a single entry in a new Lookups output under the specified heading
-- *Prompt from LookupTable* - uses a Collection of Lookups as grammar rules from which to randomly generate prompts.
+- *Prompt from Lookup Table* - uses a Collection of Lookups as grammar rules from which to randomly generate prompts.
 
 There are some example .yaml files here to give some ideas about what sort of things are possible. Most of these possibilities are illustrated by the file `example_template.yaml`.
