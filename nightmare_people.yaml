@@ -1,0 +1,137 @@
+prompt:
+  feels:
+      - 3*
+      - 3*cheerful
+      - 4*ecstatic
+      - 5*happy
+      - alert inquisitive
+      - casual
+      - mopey
+      - stoic
+      - irritated
+      - pensive brooding
+      - agitated
+      - terrified
+      - wise
+      - wrathful
+  weight:
+      - ?4
+      - gogurt enjoying
+      - hipster
+      - nerdy+
+      - muscular+
+      - railthin++
+      - 3*railthin
+      - 3*slim
+      - 3*fit
+      - 2*typical
+      - 2*average
+      - 3*chubby----
+      - chubby--
+      - chubby
+      - obese----
+      - obese
+  who:
+      - ?1
+      - gogurt enjoyer
+      - group of friends
+      - couple
+      - unicorn
+      - humanoid+ robot+
+      - puppy+
+      - dog+
+      - kitten+
+      - cat+
+      - young boy
+      - boy
+      - teen boy
+      - man
+      - guy
+      - older man
+      - older++ man
+      - grandpa
+      - little girl
+      - girl (in her early teens)+
+      - girl (in her late teens)+
+      - woman
+      - lady
+      - mature-- woman
+      - mature woman
+      - grandma
+  doing:
+      - ?3
+      - 3*(asking for directions)+
+      - 3*(looking up skyward)-
+      - 3*appearing standing--
+      - 3*standing
+      - 3*jogging
+      - (eating spaghetti incorrectly)+
+      - [ "transforming+++ into a eyeless++ soulless+++ mess of wires and circuits and vacuum tubes and black plastic", ", pcb futurism, green and gray palette, fractal wavetracing" ]
+  how:
+      - ?3
+      - in (nacreous gogurtdeco)+ fashion
+      - in (chic minimalistic clothes)+
+      - in (bold playful clothes)+
+      - in (classic timeless clothes)+
+      - wearing (edgy rebellious fashion)+
+      - wearing (high-fashion couture)+
+      - dressed in (traditional folk clothes)+
+      - wearing flashy clothes
+      - dressed in rags
+      - in delicate (leavers lace)+
+      - wearing sporty clothes
+  whence:
+      - ?1
+      - arab
+      - ghanaian
+      - haitian
+      - moroccan
+      - maori
+      - indian
+      - filipino
+      - peruvian
+      - portuguese
+      - american
+      - germanic
+      - australian
+      - japanese
+      - redhead
+  where:
+      - ?1
+      - in a diner+ with a cozy retro atmosphere and a few patrons drinking coffee with breakfast
+      - along the beach, sky illuminated with vivid sunset, near a lighthouse+
+      - in a sacred cave; wispy blue++ smoke+++; burning oil++ lamp++
+      - by a cityscape by the lake in nacreous gogurtdeco futurism
+      - sitting by the front door of their house
+      - under the moonlight in (an ancient glen, (with a magical quality,)-- ancient ruins,)- (phosphorescent lichens)-
+      - in an open field in superbloom+ with vivid wildflowers
+      - in a fancy upscale italian restaurant
+      - in a cozy upscale darkcrystallist supermassive blackholeism bedroom
+      - sitting++ in a cozy upscale supercrystallist holographic neogogurtism+ living room
+      - in a futuristic drinks bar of a space station
+      - in a greenhouse with cinematic ambience, sunlight filtering in through rows of plants and flowers
+      - in a busy city square
+      - in a bustling-- subway station (underground terminus)--, ((flourescent lit tiled walls, concrete,)-- posters and vending machines)-
+      - by a tree near a busy city square
+      - looking out over (limestone outcrops, rocky ridge)- in (wild wonderful wv monongahela national forest+ , rhododendrons, (sky ablaze with summer)-)--
+  when:
+      - ancient++ [cars, modern, tech, skyscrapers]
+      - medieval+ [cars, skyscrapers]
+      - renaissance [cars, skyscrapers]
+      - victorian [cars]
+      - edwardian [cars]
+      - flapper [cars--, buses]
+      - artdeco+ [buses]
+      - 50s+
+      - 60s+
+      - 70s+
+      - 80s
+      - 90s
+      - modern
+      - classic gogurtdeco+
+      - nacreous+ gogurtdeco++ futurism
+  templates:
+      - "a ({feels})+ {weight} {whence} ({who})++"
+      - "a ({feels})+ {weight} {whence} ({who})++"
+      - "({feels})+ {weight} {whence} ({who})++"
+      - "({feels})+ {weight} {whence} ({who})++"

@@ -1,0 +1,58 @@
+prompt:
+    title:
+        - ' "'
+        - ', "'
+        - ', "My'
+        - ' "The'
+        - ' "The Problem with'
+        - ' "Two'
+    templates:
+        - "{poster} {fororfrom} the {genre} film {title}"
+    poster:
+        - still
+        - cinematic still
+        - cinematic frame
+        - promotional still
+        - promo poster
+        - movie poster
+        - full-cast dance scene
+        - solo dance number
+        - climactic action scene
+        - dramatic cinematic shot
+        - an emotional space scene
+        - promotional poster
+    fororfrom:
+        - from
+        - for
+    genre:
+        - "{genre1}"
+        - "bollywood {genre1}"
+        - "indie {genre1}"
+        - "low-budget {genre1}"
+        - "blockbuster {genre1}"
+        - "student {genre1}"
+    genre1:
+        - 8*{genre2}
+        - "{genre2} musical"
+        - "musical {genre2}"
+    genre2:
+        - "sci-fi {genre3}"
+        - "surrealist {genre3}"
+        - "avant-garde {genre3}"
+        - "art {genre3}"
+        - "psychological {genre3}"
+        - "black {genre3}"
+        - "high school {genre3}"
+        - "spaghetti {genre3}"
+        - 16*{genre3}
+    genre3:
+        - ""
+        - comedy
+        - mystery
+        - farce
+        - rom-com
+        - thriller
+        - crime drama
+        - family
+        - horror
+        - western

@@ -1,0 +1,121 @@
+prompt:
+  photographNoun:
+      - photo
+      - photograph
+      - cinematic still
+  photographPortraitNoun:
+      - full body photograph
+      - full frontal photograph
+  photographNoun2:
+      - snapshot
+  photographPortraitNoun2:
+      - headshot
+  photoWideType:
+      - wide angle
+      - landscape
+  photoType:
+      - professional
+      - evocative
+  photoType2:
+      - photographic portfolio
+      - photographic portrait portfolio
+  portraitsuffix:
+      - "{portraitlens} on {film}"
+      - "{lens} shallow depth of field photo"
+  lens:
+      - "{focallength} {fstop} {lensmodel}"
+      - "{focallength} {fstop}"
+  widelens:
+      - "{wideangle} {fstopwide} {lensmodel}"
+      - "{ultrawide} {fstopwide} {lensmodel}"
+  portraitlens:
+      - "{normal} {fstopportrait} {lensmodel}"
+      - "{portrait} {fstopportrait} {lensmodel}"
+  focallength:
+      - "{ultrawide}"
+      - "2*{wideangle}"
+      - "2*{normal}"
+      - "2*{portrait}"
+      - "{telephoto}"
+  ultrawide:
+      - 11mm [200mm]
+      - 14mm [200mm]
+  wideangle:
+      - 20mm
+      - 24mm
+      - 35mm
+  normal:
+      - 50mm
+      - 58mm
+  portrait:
+      - 85mm
+      - 100mm
+      - 135mm
+  telephoto:
+      - 200mm [35mm]
+      - 300mm [35mm]
+  fstopwide:
+      - "{wideaperture}"
+      - "{mediumaperture}"
+      - "{pinhole}"
+  fstopportrait:
+      - "{wideaperture}"
+      - "4*{mediumaperture}"
+  fstop:
+      - "{superwideaperture}"
+      - "4*{wideaperture}"
+      - "3*{mediumaperture}"
+      - "{pinhole}"
+  superwideaperture:
+      - f/1 .2 [f/11, f/16]
+      - f/1 .4 [f/11, f/16]
+      - f/1 .8 [f/11, f/16]
+  wideaperture:
+      - f/1 .8 [f/11, f/16]
+      - 3* f/2 [f/11, f/16]
+      - 2* f/2 .8 [f/11, f/16]
+      - f/3 .5 [f/11, f/16]
+  mediumaperture:
+      - f/4
+      - f/5 .6
+      - f/8
+  pinhole:
+      - f/11 [f/2, f/1 .8, f/2 .8]
+      - f/16 [f/2, f/1 .8, f/2 .8]
+  lensmodel:
+      - 2* zeiss biotar
+      - zeiss planar
+      - 2* zeiss sonnar
+  film:
+      - nikon digital
+      - canon digital
+      - sony digital
+      - kodak vision 3
+      - fujichrome sensia 100
+      - kodak ektachrome e100
+      - fujicolor pro 800z
+      - fujichrome velvia 100
+      - "kodak portra {portraspeed}"
+      - kodachrome 64 professional
+      - agfa optima
+  portraspeed:
+      - 100 nc
+      - 100 vc
+      - 400 nc
+      - 400 vc
+  photograph:
+      - [ 5, "{photographNoun}" , ", {lens} on {film}" ]
+      - [ 5, "{photographNoun} {photographNoun2}" , ", {lens} on {film}"]
+      - [ 5, "{photoType} {photographNoun}" , ", {lens} on {film}"]
+      - [ 5, "{photoType} {photographNoun} {photographNoun2}" , ", {lens} on {film}"]
+      - [ 5, "{photoType} {photographPortraitNoun}" , ", {lens} on {film}"]
+      - [ 2, "{photoWideType} {photographNoun}" , ", {widelens} on {film}"]
+      - [ 2, "{photoWideType} {photographNoun2}" , ", {widelens} on {film}"]
+      - [ 1, "amateur iphone {photographNoun}" , ", wide angle phone camera snapshot"]
+      - [ 1, "amateur iphone {photographNoun2}" , ", wide angle phone camera snapshot"]
+      - [ 1, "{photoType2} {photographNoun2}" , ", {portraitsuffix}"]
+      - [ 1, "{photoType2} {photographPortraitNoun2}" , ", {portraitsuffix}"]
+  negatives:
+      - "[<neg-anime>--- <neg-sketch-2>-----]"
+      - "[<neg-anime>--, <neg-sketch-2>----, parasol, vivid++++ colors++++ oversaturated++]"
+      - "[<neg-sketch-2>, (scribble, anime, drawing, sketch, cartoon, render, pixar, painting, monochrome, hdr)+++, border, frame]"

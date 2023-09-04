@@ -1,0 +1,27 @@
+prompt:
+  bookends:  # Chiastic function - a parallel buffer grows in reverse to attach at the end of the prompt
+      # A list of two items adds to the prompt and to the reverse buffer:
+      - [ oil painting using impasto of a , ", brush strokes, palette knife technique" ]
+      # A list of three items reads the first item as a number and thus weights the entry's likelihood:
+      - [ 2, "professional photo of a" , ", 50mm f/5 .6 on fujicolor pro 800z" ]  # 2 => twice as likely
+  feels:
+      - ?4  # ?4 means an empty value will be drawn with 4x the likelihood of a single entry
+      - happy
+      - sad
+      - [ happy , ", grinning+ widely" ]  # chiastic versions. note how these nest from the outside in.
+      - [ sad   , ", pouting+ glumly" ]   #  e.g., <term-A> <term-B> . . . <term-B'> <term-A'>
+  who:
+      - Rami Malek
+      - man
+      - woman
+  where:
+      - ?1
+      - in a busy city square
+      - in a fancy upscale italian restaurant
+      - in a futuristic drinks bar of a space station
+      - transforming+++ into an eyeless++ soulless+++ mess of wires and circuits and vacuum tubes and black plastic
+  templates:
+      - "{bookends} ({feels})+ ({who})++ ({where})-"
+  negatives:
+      - ""
+      - 2 * [sketch, drawing, cartoon, pixar, zombie--] # The "2 *" prefix multiplies likelihood by two.
