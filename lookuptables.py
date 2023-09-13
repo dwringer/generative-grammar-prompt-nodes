@@ -38,7 +38,8 @@ class HalvedPromptOutput(BaseInvocationOutput):
     "lookup_table_from_file",
     title="Lookup Table from File",
     tags=["prompt", "lookups", "grammar", "file"],
-    category="prompt"
+    category="prompt",
+    version="1.0.0",    
 )
 class LookupTableFromFileInvocation(BaseInvocation):
     """Loads a lookup table from a YAML file"""
@@ -120,7 +121,8 @@ class LookupTableFromFileInvocation(BaseInvocation):
     "lookup_from_prompt",
     title="Lookups Entry from Prompt",
     tags=["prompt", "lookups", "grammar"],
-    category="prompt"
+    category="prompt",
+    version="1.0.0",    
 )
 class LookupsEntryFromPromptInvocation(BaseInvocation):
     """Creates a lookup table of a single heading->value"""
@@ -137,7 +139,8 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
     "prompt_from_lookup_table",
     title="Prompt from Lookup Table",
     tags=["prompt", "lookups", "grammar"],
-    category="prompt"
+    category="prompt",
+    version="1.0.0",    
 )
 class PromptFromLookupTableInvocation(BaseInvocation):
     """Creates prompts using lookup table templates"""
