@@ -16,7 +16,9 @@ from invokeai.app.invocations.baseinvocation import (
     invocation_output,
     InputField,
     OutputField,
-    UIType
+    UIType,
+    WithMetadata,
+    WithWorkflow,    
 )
 
 
@@ -39,7 +41,7 @@ class HalvedPromptOutput(BaseInvocationOutput):
     title="Lookup Table from File",
     tags=["prompt", "lookups", "grammar", "file"],
     category="prompt",
-    version="1.0.0",    
+    version="1.1.0",    
 )
 class LookupTableFromFileInvocation(BaseInvocation):
     """Loads a lookup table from a YAML file"""
@@ -122,7 +124,7 @@ class LookupTableFromFileInvocation(BaseInvocation):
     title="Lookups Entry from Prompt",
     tags=["prompt", "lookups", "grammar"],
     category="prompt",
-    version="1.0.0",    
+    version="1.1.0",    
 )
 class LookupsEntryFromPromptInvocation(BaseInvocation):
     """Creates a lookup table of a single heading->value"""
@@ -140,15 +142,13 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
     title="Prompt from Lookup Table",
     tags=["prompt", "lookups", "grammar"],
     category="prompt",
-    version="1.0.0",    
+    version="1.1.0",    
 )
 class PromptFromLookupTableInvocation(BaseInvocation):
     """Creates prompts using lookup table templates"""
     lookups: list[str] = InputField(
         description="Lookup table(s) containing templates (JSON)",
         default_factory=list,
-        ui_type=UIType.Collection,
-        ui_hidden=False
     )
     remove_negatives: bool = InputField(default=False, description="Whether to strip out text between []")
     strip_parens_probability: float = InputField(default=0.0, ge=0.0, le=1.0,
