@@ -2,7 +2,7 @@
 
 ### Installation:
 
-To install these nodes, simply place the folder containing this repository's code (or just checkout the repository yourself) into your `invokeai/nodes` folder.
+To install these nodes, simply place the folder containing this repository's code (or just clone the repository yourself) into your `invokeai/nodes` folder.
 
 ### Generative Grammar-Based Prompt Nodes
 
