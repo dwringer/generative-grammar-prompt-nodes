@@ -15,8 +15,9 @@ from invokeai.invocation_api import (
     InvocationContext,
     invocation,
     invocation_output,
+    InputField,
+    OutputField
 )
-from invokeai.app.invocations.fields import InputField, OutputField
 
 
 @invocation_output("lookups_output")
