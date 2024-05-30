@@ -8,7 +8,7 @@ from typing import Literal, Union
 from omegaconf import OmegaConf, listconfig, dictconfig
 from pydantic import Field, validator
 
-from invokeai.app.invocations.baseinvocation import (
+from invokeai.invocation_api import (
     BaseInvocation,
     BaseInvocationOutput,
     InvocationContext,
@@ -148,7 +148,7 @@ class PromptFromLookupTableInvocation(BaseInvocation):
     """Creates prompts using lookup table templates"""
     lookups: list[str] = InputField(
         description="Lookup table(s) containing templates (JSON)",
-        default_factory=list,
+        default=[],
     )
     remove_negatives: bool = InputField(default=False, description="Whether to strip out text between []")
     strip_parens_probability: float = InputField(default=0.0, ge=0.0, le=1.0,
