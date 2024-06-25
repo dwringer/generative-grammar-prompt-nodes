@@ -1,9 +1,3 @@
-# CHANGELOG:
-# - use Union to support single lookups node or collection of nodes (restored functionality)
-# - 'template' / 'negative' keys will now override existing 'templates'/'negatives' when present
-# - resolutions by id during template expansion, when present as {tagname:id}
-# - resolutions field passable between fields
-
 import json
 import random
 import re
@@ -11,7 +5,6 @@ from os import listdir
 from os.path import exists, isdir
 from os.path import join as path_join
 from os.path import splitext as path_splitext
-from typing import Union
 
 from omegaconf import OmegaConf, dictconfig, listconfig
 from pydantic import validator
@@ -41,7 +34,6 @@ class HalvedPromptOutput(BaseInvocationOutput):
     prompt: str = OutputField(default="", description="The output prompt")
     part_a: str = OutputField(default="", description="First part of the output prompt")
     part_b: str = OutputField(default="", description="Second part of the output prompt")
-    resolutions: str = OutputField(default="", description="JSON dict of [tagname,id] resolutions")
 
 
 @invocation(
@@ -152,28 +144,18 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
     title="Prompt from Lookup Table",
     tags=["prompt", "lookups", "grammar"],
     category="prompt",
-    version="1.3.0",
-    use_cache=False,
+    version="1.2.0",
 )
 class PromptFromLookupTableInvocation(BaseInvocation):
     """Creates prompts using lookup table templates"""
 
-    lookups: Union[str, list[str]] = InputField(
-        description="Lookup table(s) containing template(s) (JSON)",
+    lookups: list[str] = InputField(
+        description="Lookup table(s) containing templates (JSON)",
         default=[],
     )
     remove_negatives: bool = InputField(default=False, description="Whether to strip out text between []")
     strip_parens_probability: float = InputField(
         default=0.0, ge=0.0, le=1.0, description="Probability of removing attention group weightings"
-    )
-    resolutions: Union[str, list[str]] = InputField(
-        description="JSON structure of substitutions by id by tag",
-        default=[],
-    )
-    resolutions_dict: dict = InputField(
-        description="Private field for id substitutions dict cache",
-        ui_hidden=True,
-        default={},
     )
 
     @validator("lookups")
@@ -182,49 +164,26 @@ class PromptFromLookupTableInvocation(BaseInvocation):
         if isinstance(v, list):
             for i in v:
                 loaded = json.loads(i)
-                if (("templates" in loaded) or ("template" in loaded)):
+                if "templates" in loaded:
                     valid = True
                     break
-        else:
-            if (
-                    (not (v is None)) and
-                    (("templates" in json.loads(v)) or ("template" in json.loads(v)))
-            ):
-                valid = True
+        #    else:
+        #        if (not (v is None)) and ("templates" in json.loads(v)):
+        #            valid = True
         if (not valid) and (not (len(v) == 0)):
-            raise ValueError("'template' or 'templates' key must be present in lookups")
+            raise ValueError("'templates' key must be present in lookup table(s)")
         return v
 
     def templateExpand(self, s: str, lookups: dict, reflection: str = ""):
         "Used internally to replace words with their template lookups. Single pass."
-        _split = re.split(r"({[\d\:\w]+})", s)
+        _split = re.split(r"({[\d:\w]+})", s)
         result = ""
         for word in _split:
             _lookup = None
-            # Track unique identifiers for tags:
-            word_id = None
-            id_parts = word[1:-1].split(":")
-            if 1 < len(id_parts):
-                word, word_id = id_parts[:2]
-                word = "{" + word + "}"
-            if word_id:
-                _word = word[1:-1] if re.fullmatch(r"({\w+})", word) else word
-                word_in_resolutions = self.resolutions_dict[_word] if _word in self.resolutions_dict else None
-                if word_in_resolutions:
-                    resolution_by_id = word_in_resolutions[word_id] if word_id in word_in_resolutions else None
-                    if resolution_by_id:
-                        _lookup = resolution_by_id
-                else:
-                    self.resolutions_dict[_word] = {}
-            if not _lookup:
-                if re.fullmatch(r"({\w+})", word):
-                    _lookup = random.choice(lookups[word[1:-1]])
-                    if word_id:
-                        self.resolutions_dict[word[1:-1]][word_id] = _lookup
-                else:
-                    _lookup = word
-                    if word_id:
-                        self.resolutions_dict[word][word_id] = _lookup
+            if re.fullmatch(r"({\w+})", word):
+                _lookup = random.choice(lookups[word[1:-1]])
+            else:
+                _lookup = word
             if isinstance(_lookup, (list, listconfig.ListConfig)):
                 result = result + _lookup[0]
                 reflection = " " + _lookup[1] + reflection
@@ -292,44 +251,23 @@ class PromptFromLookupTableInvocation(BaseInvocation):
         return result
 
     def invoke(self, context: InvocationContext) -> HalvedPromptOutput:
-        resolutions_dict = {}
-        if isinstance(self.resolutions, list):
-            for resolutions_table in reversed(self.resolutions):
-                resolutions_table = json.loads(resolutions_table)
-                for k, v in iter(resolutions_table.items()):
-                    if k not in resolutions_dict:
-                        resolutions_dict[k] = []
-                    resolutions_dict[k].extend(v)
-        else:
-            resolutions_dict = json.loads(self.resolutions)
-        self.resolutions_dict = resolutions_dict
         lookups = {}
-        if isinstance(self.lookups, list):
-            for lookup_table in reversed(self.lookups):
-                lookup_table = json.loads(lookup_table)
-                for k, v in iter(lookup_table.items()):
-                    if k not in lookups:
-                        lookups[k] = []
-                    lookups[k].extend(v)
-        else:
-            lookups = json.loads(self.lookups)
-        template_strings = (
-            lookups['template'] if 'template' in lookups else lookups["templates"]
-        )
-        base_negatives = (
-            lookups['negative'] if ('negative' in lookups) else (
-                lookups["negatives"] if ("negatives" in lookups) else []
-            )
-        )
+        #        if isinstance(self.lookups, list):
+        for lookup_table in reversed(self.lookups):
+            lookup_table = json.loads(lookup_table)
+            for k, v in iter(lookup_table.items()):
+                if k not in lookups:
+                    lookups[k] = []
+                lookups[k].extend(v)
+        #        else:
+        #            lookups = json.loads(self.lookups)
+        template_strings = lookups["templates"]
+        base_negatives = lookups["negatives"] if ("negatives" in lookups) else []
         result = None
         appendices = None
 
         for i in range(1):
-            base, reflection = self.templateExpand(
-                random.choice(template_strings),
-                lookups=lookups,
-                reflection=""
-            )
+            base, reflection = self.templateExpand(random.choice(template_strings), lookups=lookups, reflection="")
             next, reflection = self.templateExpand(base, lookups=lookups, reflection=reflection)
             while (next != base) or (re.search(r"{\w+}", base)):
                 base = next
@@ -364,9 +302,4 @@ class PromptFromLookupTableInvocation(BaseInvocation):
 
             result = (base + appendices).strip()
 
-        return HalvedPromptOutput(
-            prompt=result,
-            part_a=base.strip(),
-            part_b=appendices.strip(),
-            resolutions=json.dumps(self.resolutions_dict)
-        )
+        return HalvedPromptOutput(prompt=result, part_a=base.strip(), part_b=appendices.strip())
