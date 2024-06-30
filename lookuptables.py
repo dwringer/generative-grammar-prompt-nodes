@@ -1,4 +1,5 @@
 # CHANGELOG:
+# - changed lookups entry node to use long text field
 # - use Union to support single lookups node or collection of nodes (restored functionality)
 # - 'template' / 'negative' keys will now override existing 'templates'/'negatives' when present
 # - resolutions by id during template expansion, when present as {tagname:id}
@@ -23,7 +24,8 @@ from invokeai.invocation_api import (
     invocation,
     invocation_output,
     InputField,
-    OutputField
+    OutputField,
+    UIComponent
 )
 
 
@@ -133,13 +135,17 @@ class LookupTableFromFileInvocation(BaseInvocation):
     title="Lookups Entry from Prompt",
     tags=["prompt", "lookups", "grammar"],
     category="prompt",
-    version="1.2.0",
+    version="1.3.2",
 )
 class LookupsEntryFromPromptInvocation(BaseInvocation):
     """Creates a lookup table of a single heading->value"""
 
     heading: str = InputField(default=None, description="Heading for the lookup table entry")
-    lookup: str = InputField(default="", description="The entry to place under Heading in the lookup table")
+    lookup: str = InputField(
+        default="",
+        description="The entry to place under Heading in the lookup table",
+        ui_component=UIComponent.Textarea,        
+    )
 
     def invoke(self, context: InvocationContext) -> LookupTableOutput:
         lookups = {}
@@ -152,7 +158,7 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
     title="Prompt from Lookup Table",
     tags=["prompt", "lookups", "grammar"],
     category="prompt",
-    version="1.3.1",
+    version="1.3.2",
     use_cache=False,
 )
 class PromptFromLookupTableInvocation(BaseInvocation):
@@ -195,6 +201,22 @@ class PromptFromLookupTableInvocation(BaseInvocation):
             raise ValueError("'template' or 'templates' key must be present in lookups")
         return v
 
+    def iterateExpansions(self, _base, _reflection, lookups):
+        _next, _reflection = self.templateExpand(_base, lookups=lookups, reflection=_reflection)
+        while (_next != _base) or (re.search(r"{\w+}", _base)):
+            _base = _next
+            _next, _reflection = self.templateExpand(_base, lookups=lookups, reflection=_reflection)
+        _appendices = ""
+        while _reflection != "":
+            _appendix = _reflection
+            _next, _reflection = self.templateExpand(_appendix, lookups=lookups, reflection="")
+            while (_next != _appendix) or (re.search(r"{\w+}", _appendix)):
+                _appendix = _next
+                _next, _reflection = self.templateExpand(_appendix, lookups=lookups, reflection=_reflection)
+            _appendices = _appendices + _appendix
+
+        return _base, _appendices
+
     def templateExpand(self, s: str, lookups: dict, reflection: str = ""):
         "Used internally to replace words with their template lookups."
         _split = re.split(r"({[\d:\w]+})", s)
@@ -223,37 +245,10 @@ class PromptFromLookupTableInvocation(BaseInvocation):
                 if isinstance(_lookup, (list, listconfig.ListConfig)):
                     # This is a two-part substition (A, B)
                     if word_id:
-                        # Expand recursively until done so the resolution is fully cached and reproducible:
+                        # Expand until done so the resolution is fully cached and reproducible:
                         _base, _reflection = _lookup[:2]
-                        _next, _reflection = self.templateExpand(
-                            _base,
-                            lookups=lookups,
-                            reflection=_reflection
-                        )
-                        while (_next != _base) or (re.search(r"{\w+}", _base)):
-                            _base = _next
-                            _next, _reflection = self.templateExpand(
-                                _base,
-                                lookups=lookups,
-                                reflection=_reflection
-                            )
-                        _appendices = ""
-                        while _reflection != "":
-                            _appendix = _reflection
-                            _next, _reflection = self.templateExpand(
-                                _appendix,
-                                lookups=lookups,
-                                reflection=""
-                            )
-                            while (_next != _appendix) or (re.search(r"{\w+}", _appendix)):
-                                _appendix = _next
-                                _next, _reflection = self.templateExpand(
-                                    _appendix,
-                                    lookups=lookups,
-                                    reflection=_reflection
-                                )
-                            _appendices = _appendices + _appendix
 
+                        _base, _appendices = self.iterateExpansions(_base, _reflection, lookups)
                         self.resolutions_dict[word][word_id] = [_base, _appendices]
 
                         result = result + _base
@@ -265,7 +260,16 @@ class PromptFromLookupTableInvocation(BaseInvocation):
                 else:  # Otherwise, lookup is just a string
                     if word_id:
                         self.resolutions_dict[word][word_id] = _lookup
-                    result = result + _lookup
+                        _base, _reflection = _lookup, ''
+
+                        _base, _appendices = self.iterateExpansions(_base, _reflection, lookups)
+                        self.resolutions_dict[word][word_id] = [_base, _appendices]
+
+                        result = result + _base
+                        reflection = " " + _appendices + reflection
+                        
+                    else:
+                        result = result + _lookup
 
             else:  # Direct pass-through
                 _lookup = word                
@@ -376,18 +380,7 @@ class PromptFromLookupTableInvocation(BaseInvocation):
                 lookups=lookups,
                 reflection=""
             )
-            next, reflection = self.templateExpand(base, lookups=lookups, reflection=reflection)
-            while (next != base) or (re.search(r"{\w+}", base)):
-                base = next
-                next, reflection = self.templateExpand(base, lookups=lookups, reflection=reflection)
-            appendices = ""
-            while reflection != "":
-                appendix = reflection
-                next, reflection = self.templateExpand(appendix, lookups=lookups, reflection="")
-                while (next != appendix) or (re.search(r"{\w+}", appendix)):
-                    appendix = next
-                    next, reflection = self.templateExpand(appendix, lookups=lookups, reflection=reflection)
-                appendices = appendices + appendix
+            base, appendices = self.iterateExpansions(base, reflection, lookups)
 
             if random.random() < self.strip_parens_probability:
                 # Strip off parentheses and pluses, then trailing minuses w/o and w/ commas afterward
