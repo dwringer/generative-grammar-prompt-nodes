@@ -8,13 +8,13 @@
 import json
 import random
 import re
+import yaml
 from os import listdir
 from os.path import exists, isdir
 from os.path import join as path_join
 from os.path import splitext as path_splitext
 from typing import Union
 
-from omegaconf import OmegaConf, dictconfig, listconfig
 from pydantic import validator
 
 from invokeai.invocation_api import (
@@ -82,20 +82,22 @@ class LookupTableFromFileInvocation(BaseInvocation):
                         results.extend(["" for number_of_times in range(int(line[1:]))])
                     else:
                         results.append(line)
-            elif isinstance(line, listconfig.ListConfig) and (len(line) == 3):
+            elif isinstance(line, list) and (len(line) == 3):
                 for i in range(int(line[0])):
                     results.append(line[1:])
-            elif isinstance(line, list):
-                results.append(line)
+#            elif isinstance(line, list):
+#                results.append(line)
             else:
-                results.append(OmegaConf.to_object(line))
+                results.append(line)
         return results
 
     def lookupTableFromFile(self, file_path: str):
         lookup_table = {}
-        raw_conf = OmegaConf.load(file_path)
+        raw_conf = ''
+        with open(file_path, 'r') as inf:
+            raw_conf = yaml.safe_load(inf)
         prompt_section = raw_conf.get("prompt")
-        if isinstance(prompt_section, dictconfig.DictConfig):
+        if isinstance(prompt_section, dict):
             for k, v in prompt_section.items():
                 # Add singular "template" and "negative" entries
                 #  to "templates" and "negatives" lists:
@@ -242,7 +244,7 @@ class PromptFromLookupTableInvocation(BaseInvocation):
                 if not _lookup:
                     _lookup = random.choice(lookups[word])
 
-                if isinstance(_lookup, (list, listconfig.ListConfig)):
+                if isinstance(_lookup, (list, list)):
                     # This is a two-part substition (A, B)
                     if word_id:
                         # Expand until done so the resolution is fully cached and reproducible:
@@ -273,7 +275,7 @@ class PromptFromLookupTableInvocation(BaseInvocation):
 
             else:  # Direct pass-through
                 _lookup = word                
-                if isinstance(_lookup, (list, listconfig.ListConfig)):
+                if isinstance(_lookup, list):
                     # This is a two-part substition (A, B)
                     result = result + _lookup[0]
                     reflection = " " + _lookup[1] + reflection
