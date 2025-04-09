@@ -57,14 +57,14 @@ subdirectory. If you installed to `C:\Users\<user
 name>\invokeai\` then you will want your terminal to be open to
 `C:\Users\<user name>\invokeai\nodes\`.  Then simply type:
 ```
-git clone https://github.com/dwringer/composition-nodes.git
+git clone https://github.com/dwringer/generative-grammar-prompt-nodes.git
 ```
 
 - Or, download the source code of this repository as a .zip file by
 clicking the green `<> Code` button above and selecting `Download
 ZIP`, then extract the folder within and place it as a subfolder
 inside the `nodes` folder of your InvokeAI home directory (e.g.,
-`C:\Users\<user name>\invokeai\nodes\composition-nodes-master\`)
+`C:\Users\<user name>\invokeai\nodes\generative-grammar-prompt-nodes-master\`)
 
 ## Overview
 ### Nodes
