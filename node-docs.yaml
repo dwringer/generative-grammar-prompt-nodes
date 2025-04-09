@@ -1,0 +1,68 @@
+repository_name: Generative Grammar Prompt Nodes for InvokeAI
+author: dwringer
+license: MIT
+description: Set of nodes for loading word replacement tables from files and using them to randomly generate prompts by recursively expanding a template string until it contains no more nonterminal substrings.
+keywords: [node, invokeai, python, grammar, prompt]
+requirements:
+  - invokeai>=4
+intro: |
+  ![lookups usage example graph](https://raw.githubusercontent.com/dwringer/generative-grammar-prompt-nodes/main/lookuptables_usage.jpg)
+
+  This generates prompts from simple user-defined grammar rules (loaded
+  from custom files - examples provided below). The prompts are made by
+  recursively expanding a special template string, replacing nonterminal
+  "parts-of-speech" until no more nonterminal terms remain in the
+  string.
+
+  As a basic example, the template `{picture} of {subject}` might be
+  expanded to `{photoQuality} photo of {person}`, which might
+  subsequently expand to `professional photo of Barack Obama` (assuming
+  these definitions were present in the lookup table):
+
+  ```
+  prompt:
+    templates:
+      - "{picture} of {subject}"
+    picture:
+      - sketch
+      - cartoon
+      - "{photoQuality} photo"
+    photoQuality:
+      - professional
+      - amateur
+    subject:
+      - "{person}"
+    person:
+      - Barack Obama
+      - George Bush
+      - Tom Hanks
+      - Rami Malek
+  ```
+
+  ### Installation:
+
+  To install these nodes, simply place the folder containing this
+  repository's code (or just clone the repository yourself) into your
+  `invokeai/nodes` folder.
+
+  Generally, the two methods of installation are:
+
+  - Open a terminal with git access (`git bash` on Windows) in
+  your InvokeAI home directory, and `cd` to the `nodes`
+  subdirectory. If you installed to `C:\Users\<user
+  name>\invokeai\` then you will want your terminal to be open to
+  `C:\Users\<user name>\invokeai\nodes\`.  Then simply type:
+  ```
+  git clone https://github.com/dwringer/composition-nodes.git
+  ```
+
+  - Or, download the source code of this repository as a .zip file by
+  clicking the green `<> Code` button above and selecting `Download
+  ZIP`, then extract the folder within and place it as a subfolder
+  inside the `nodes` folder of your InvokeAI home directory (e.g.,
+  `C:\Users\<user name>\invokeai\nodes\composition-nodes-master\`)
+
+outro: |
+  There are some example .yaml files here to give some ideas about what
+  sort of things are possible. Most of these possibilities are
+  illustrated by the file `example_template.yaml`.
