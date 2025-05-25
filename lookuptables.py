@@ -33,7 +33,7 @@ from invokeai.invocation_api import (
 class LookupTableOutput(BaseInvocationOutput):
     """Base class for invocations that output a JSON lookup table"""
 
-    lookups: str = OutputField(default=None, description="The output lookup table")
+    lookups: str = OutputField(description="The output lookup table")
 
 
 @invocation_output("halved_prompt_output")
@@ -142,7 +142,7 @@ class LookupTableFromFileInvocation(BaseInvocation):
 class LookupsEntryFromPromptInvocation(BaseInvocation):
     """Creates a lookup table of a single heading->value"""
 
-    heading: str = InputField(default=None, description="Heading for the lookup table entry")
+    heading: str = InputField(description="Heading for the lookup table entry")
     lookup: str = InputField(
         default="",
         description="The entry to place under Heading in the lookup table",
