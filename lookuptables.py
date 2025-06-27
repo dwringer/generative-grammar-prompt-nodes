@@ -50,7 +50,7 @@ class EvolutionaryPromptListOutput(BaseInvocationOutput):
     prompt_seed_pairs: list[str] = OutputField(description="List of JSON strings, each containing [prompt, seed_vector_json]")
     selected_pair: str = OutputField(description="The index-selected prompt from the output population")
 
-    
+
 @invocation(
     "lookup_table_from_file",
     title="Lookup Table from File",
@@ -149,7 +149,7 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
     lookup: str = InputField(
         default="",
         description="The entry to place under Heading in the lookup table",
-        ui_component=UIComponent.Textarea,        
+        ui_component=UIComponent.Textarea,
     )
 
     def invoke(self, context: InvocationContext) -> LookupTableOutput:
@@ -157,331 +157,6 @@ class LookupsEntryFromPromptInvocation(BaseInvocation):
         lookups[self.heading] = [self.lookup]
         return LookupTableOutput(lookups=json.dumps(lookups))
 
-
-@invocation(
-    "prompt_from_lookup_table",
-    title="Prompt from Lookup Table",
-    tags=["prompt", "lookups", "grammar"],
-    category="prompt",
-    version="1.5.0",
-    use_cache=False,
-)
-class PromptFromLookupTableInvocation(BaseInvocation):
-    """Creates prompts using lookup table templates"""
-
-    lookups: Union[str, list[str]] = InputField(
-        description="Lookup table(s) containing template(s) (JSON)",
-        default=[],
-    )
-    remove_negatives: bool = InputField(default=False, description="Whether to strip out text between []")
-    strip_parens_probability: float = InputField(
-        default=0.0, ge=0.0, le=1.0, description="Probability of removing attention group weightings"
-    )
-    resolutions: Union[str, list[str]] = InputField(
-        description="JSON structure of substitutions by id by tag",
-        default=[],
-    )
-    resolutions_dict: dict = InputField(
-        description="Private field for id substitutions dict cache",
-        ui_hidden=True,
-        default={},
-    )
-    seed_vector_in: Optional[str] = InputField(
-        default=None, description="Optional JSON array of seeds for deterministic generation"
-    )
-
-    @validator("lookups")
-    def validate_lookups(cls, v):
-        valid = False
-        if isinstance(v, list):
-            for i in v:
-                loaded = json.loads(i)
-                if ("templates" in loaded) or ("template" in loaded):
-                    valid = True
-                    break
-        else:
-            if (
-                (not (v is None)) and
-                (("templates" in json.loads(v)) or ("template" in json.loads(v)))
-            ):
-                valid = True
-        if (not valid) and (not (len(v) == 0)):
-            raise ValueError("'template' or 'templates' key must be present in lookups")
-        return v
-
-    # --- Internal Helper for Seed Management ---
-    class SeedManager:
-        def __init__(self, seed_vector_in: Optional[list] = None):
-            self.seed_vector_in = seed_vector_in if seed_vector_in is not None else []
-            self.seed_vector_out = []
-            self.current_seed_index = 0
-
-        def get_choice(self, options_list: list) -> Any:
-            """
-            Gets a choice using the next seed from the input vector if available,
-            otherwise generates a new random seed and appends it to output vector.
-            """
-            num_options = len(options_list)
-            
-            if num_options == 0:
-                raise ValueError("Cannot choose from an empty list of options.")
-
-            if self.current_seed_index < len(self.seed_vector_in):
-                # Use provided seed
-                seed_val = self.seed_vector_in[self.current_seed_index]
-                self.current_seed_index += 1
-            else:
-                # Generate new random seed if input vector is exhausted
-                seed_val = random.randint(0, sys.maxsize)
-            
-            # Store the seed that was actually used for this choice
-            self.seed_vector_out.append(seed_val)
-            
-            # Deterministically map the seed to an option
-            # Using modulus to ensure the index is within bounds of options_list
-            choice_index = seed_val % num_options
-            return options_list[choice_index]
-
-    def iterateExpansions(self, _base, _reflection, lookups, seed_manager: "SeedManager"):
-        _next, _reflection = self.templateExpand(_base, lookups=lookups, reflection=_reflection, seed_manager=seed_manager)
-        while (_next != _base) or (re.search(r"{\w+}", _base)):
-            _base = _next
-            _next, _reflection = self.templateExpand(_base, lookups=lookups, reflection=_reflection, seed_manager=seed_manager)
-        _appendices = ""
-        while _reflection != "":
-            _appendix = _reflection
-            _next, _reflection = self.templateExpand(_appendix, lookups=lookups, reflection="", seed_manager=seed_manager)
-            while (_next != _appendix) or (re.search(r"{\w+}", _appendix)):
-                _appendix = _next
-                _next, _reflection = self.templateExpand(_appendix, lookups=lookups, reflection=_reflection, seed_manager=seed_manager)
-            _appendices = _appendices + _appendix
-
-        return _base, _appendices
-
-    def templateExpand(self, s: str, lookups: dict, reflection: str = "", seed_manager: "SeedManager" = None):
-        "Used internally to replace words with their template lookups."
-        if seed_manager is None:
-            # Fallback for direct calls not through invoke or iterateExpansions if needed
-            seed_manager = self.SeedManager() 
-            
-        _split = re.split(r"({[\d:\w]+})", s)
-        result = ""
-        for word in _split:
-            _lookup = None
-
-            if re.fullmatch(r"({[\d:\w]+})", word):
-                # This word needs substitution
-                # Track unique identifiers for tags:
-                word_id = None
-                id_parts = word[1:-1].split(":")
-                if 1 < len(id_parts):
-                    word, word_id = tuple(id_parts[:2])
-                else:
-                    word = word[1:-1]
-                if word_id:
-                    if word in self.resolutions_dict:
-                        if word_id in self.resolutions_dict[word]:
-                            _lookup = self.resolutions_dict[word][word_id]
-                    else:
-                        self.resolutions_dict[word] = {}
-                if not _lookup:
-                    # Use the seed manager for choice instead of random.choice
-                    _lookup = seed_manager.get_choice(lookups[word])
-
-                if isinstance(_lookup, list):
-                    # This is a two-part substitution (A, B)
-                    if word_id:
-                        # Expand until done so the resolution is fully cached and reproducible:
-                        _base, _reflection = _lookup[:2]
-
-                        _base, _appendices = self.iterateExpansions(_base, _reflection, lookups, seed_manager) # Pass seed_manager
-                        self.resolutions_dict[word][word_id] = [_base, _appendices]
-
-                        result = result + _base
-                        reflection = " " + _appendices + reflection
-                    else:
-                        result = result + _lookup[0]
-                        reflection = " " + _lookup[1] + reflection
-                    
-                else:  # Otherwise, lookup is just a string
-                    if word_id:
-                        self.resolutions_dict[word][word_id] = _lookup
-                        _base, _reflection = _lookup, ''
-
-                        _base, _appendices = self.iterateExpansions(_base, _reflection, lookups, seed_manager) # Pass seed_manager
-                        self.resolutions_dict[word][word_id] = [_base, _appendices]
-
-                        result = result + _base
-                        reflection = " " + _appendices + reflection
-                        
-                    else:
-                        result = result + _lookup
-
-            else:  # Direct pass-through
-                _lookup = word                
-                if isinstance(_lookup, list):
-                    # This is a two-part substitution (A, B)
-                    result = result + _lookup[0]
-                    reflection = " " + _lookup[1] + reflection
-                else:  # Direct pass-through
-                    result = result + _lookup
-                
-        return result, reflection
-
-    def cleanup(self, string_in: str):
-        "Regex to clean formatting typos occurring during generation (TODO: improve)"
-        # Condense whitespace
-        _str = re.sub(r"\s+", " ", string_in, 0)
-        _str = re.sub(r"\s([,;])\s", lambda match: (match.group(1) + " "), _str, 0)
-        # Remove empty sets of parens
-        _str = re.sub(r"\(\)[\+\-]*", "", _str)
-        # Condense whitespace again
-        _str = re.sub(r"\s+", " ", _str, 0)
-        _str = re.sub(r"\s([,;])\s", lambda match: (match.group(1) + " "), _str, 0)
-        _str = re.sub(r",+\s", ", ", _str, 0)
-        # Now we attempt to combine prefixes and suffixes.
-        _collapsed = re.sub(
-            r"(\S+?)\s*@@\s*(\S+)", lambda match: self.prefixer(match.group(1), match.group(2)), _str, 0
-        )
-        while _collapsed != _str:
-            _str = _collapsed
-            _collapsed = re.sub(
-                r"(\S+?)\s*@@\s*(\S+)", lambda match: self.prefixer(match.group(1), match.group(2)), _str, 0
-            )
-        # Remove instances of "a apple" errors by subbing "an", w/ or w/o parens in the way.
-        string_out = re.sub(
-            r"(^[Aa]\s|\s[Aa]\s)([\(]*)([aeiouAEIOU])",
-            lambda match: ((" a" if (len(match.group(1)) == 3) else "a") + "n " + match.group(2) + match.group(3)),
-            _str,
-            0,
-        )
-        return string_out
-
-    def prefixer(self, a: str, b: str):
-        "Attach pre/suffixes (indicated w/'@@') and rearrange parens/+/-"
-        result = None
-        if re.match(r"[\)\+\-]+$", b):
-            result = a + b + " @@"
-        else:
-            # Allow a single trailing hyphen but move the rest of ), +, -:
-            _aWeighting = re.match(r"\S*?(-?)([\)*\+\-]*)\s*$", a)
-            _newA = a
-            if _aWeighting is not None:
-                _newA = a[0 : _aWeighting.start(2)]
-                _aWeighting = _aWeighting[2]
-            # grab parens from the front of b:
-            _bWeighting = re.match(r"\s*(\(*)(\S*)", b)
-            _newB = b
-            if _bWeighting is not None:
-                _newB = _bWeighting[2]
-                _bWeighting = _bWeighting[1]
-            # now subtract the parens that cancel out:
-            _newAWeighting = _aWeighting.replace(")", "", _bWeighting.count("("))
-            _nSubs = len(_aWeighting) - len(_newAWeighting)
-            _newBWeighting = _bWeighting.replace("(", "", _nSubs) if (0 < _nSubs) else _bWeighting
-            _raw = _newBWeighting + _newA + _newB + _newAWeighting
-            # subtract trailing +-'s that cancel:
-            _result = _raw.replace("+-", "", 1)
-            while _raw != _result:
-                _raw = _result
-                _result = _raw.replace("+-", "", 1)
-            result = _result # Assign the final result back to 'result'
-        return result
-
-    def invoke(self, context: InvocationContext) -> HalvedPromptOutput:
-        resolutions_dict = {}
-        if isinstance(self.resolutions, list):
-            for resolutions_table in reversed(self.resolutions):
-                resolutions_table = json.loads(resolutions_table)
-                for k, v in iter(resolutions_table.items()):
-                    if k not in resolutions_dict:
-                        resolutions_dict[k] = []
-                    resolutions_dict[k].extend(v)
-        else:
-            resolutions_dict = json.loads(self.resolutions)
-        self.resolutions_dict = resolutions_dict
-        lookups = {}
-        if isinstance(self.lookups, list):
-            # Parse and store the lookup tables with a sortable key
-            parsed_lookups = []
-            for lookup_table_str in self.lookups:
-                parsed_table = json.loads(lookup_table_str)
-                # Create a sortable representation: tuple of sorted (key, value) pairs
-                # This makes the sorting deterministic based on content
-                sort_key = tuple(sorted(parsed_table.items()))
-                parsed_lookups.append((sort_key, parsed_table))
-
-            # Sort the parsed lookup tables deterministically
-            parsed_lookups.sort(key=lambda x: x[0])
-
-            for sort_key, lookup_table in reversed(parsed_lookups):
-                for k, v in iter(lookup_table.items()):
-                    if k not in lookups:
-                        lookups[k] = []
-                    lookups[k].extend(v)
-        else:
-            lookups = json.loads(self.lookups)
-        template_strings = (
-            lookups['template'] if 'template' in lookups else lookups["templates"]
-        )
-        base_negatives = (
-            lookups['negative'] if ('negative' in lookups) else (
-                lookups["negatives"] if ("negatives" in lookups) else []
-            )
-        )
-        result = None
-        appendices = None
-
-        # Initialize SeedManager
-        initial_seed_vector = None
-        if self.seed_vector_in:
-            initial_seed_vector = json.loads(self.seed_vector_in)
-        seed_manager = self.SeedManager(initial_seed_vector)
-
-        for i in range(1):
-            # Use seed_manager for the initial template choice
-            initial_template = seed_manager.get_choice(template_strings)
-            
-            base, reflection = self.templateExpand(
-                initial_template,
-                lookups=lookups,
-                reflection="",
-                seed_manager=seed_manager # Pass the seed_manager
-            )
-            base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager) # Pass the seed_manager
-
-            if random.random() < self.strip_parens_probability:
-                # Strip off parentheses and pluses, then trailing minuses w/o and w/ commas afterward
-                base = re.sub(r"[\(\)+]", "", base, 0)
-                base = re.sub(r"\-+\s", " ", base, 0)
-                base = re.sub(r"\-+,", ",", base, 0)
-                appendices = re.sub(r"[\(\)+]", "", appendices, 0)
-                appendices = re.sub(r"\-+\s", " ", appendices, 0)
-                appendices = re.sub(r"\-+,", ",", appendices, 0)
-            if self.remove_negatives:
-                # strip out anything between []
-                base = re.sub(r"\[[^\]\[]*\]", "", base, 0)
-                appendices = re.sub(r"\[[^\]\[]*\]", "", appendices, 0)
-
-            base = self.cleanup(base)
-            appendices = self.cleanup(appendices)
-
-            if not (self.remove_negatives or (not base_negatives)):
-                # Use seed_manager for negative choice as well
-                appendices = appendices + " " + seed_manager.get_choice(base_negatives)
-
-            result = (base + appendices).strip()
-
-        # Output the generated seed vector
-        generated_seed_vector_json = json.dumps(seed_manager.seed_vector_out)
-
-        return HalvedPromptOutput(
-            prompt=result,
-            part_a=base.strip(),
-            part_b=appendices.strip(),
-            resolutions=json.dumps(self.resolutions_dict),
-            seed_vector=generated_seed_vector_json # Add seed_vector to output
-        )
 
 class SeedManager:
     """
@@ -495,7 +170,7 @@ class SeedManager:
             self.end_seed_index: Optional[int] = None # Will be set once the branch is fully expanded
 
     def __init__(
-        self, 
+        self,
         initial_seed_vector: Optional[list] = None,
         crossover_target_nt: Optional[str] = None,
         crossover_subvector: Optional[list] = None,
@@ -504,7 +179,7 @@ class SeedManager:
         self.seed_vector_in = initial_seed_vector if initial_seed_vector is not None else []
         self.seed_vector_out = [] # This accumulates the seeds actually used for the current generation
         self.current_seed_index = 0
-        
+
         # For crossover logic
         self.crossover_target_nt = crossover_target_nt # The non-terminal whose expansion we want to swap
         self.crossover_subvector = crossover_subvector # The seeds to insert for the crossover target
@@ -535,7 +210,7 @@ class SeedManager:
         if self._current_branch_stack:
             tracker = self._current_branch_stack.pop()
             tracker.end_seed_index = self.current_seed_index
-        
+
         # If we're exiting the crossover branch (and it was the one we entered)
         if self.in_crossover_branch and not self._current_branch_stack: # Ensure we've left all nested calls that were part of the crossover branch
             _logger.debug(f"Exited crossover branch at seed index {self.current_seed_index}")
@@ -548,7 +223,7 @@ class SeedManager:
         and new random generation.
         """
         num_options = len(options_list)
-        
+
         if num_options == 0:
             raise ValueError("Cannot choose from an empty list of options.")
 
@@ -562,7 +237,7 @@ class SeedManager:
                 # We still increment current_seed_index to correctly track the original position
                 # where these seeds *would have been* if they were from the original parent.
                 # This helps in defining the end of the "skipped" section.
-                self.current_seed_index += 1 
+                self.current_seed_index += 1
                 _logger.debug(f"Using CO seed: {seed_val} (idx: {self.crossover_subvector_index-1}) for {options_list[0] if options_list else 'UNKNOWN'} (next original seed: {self.current_seed_index})")
             else:
                 # Crossover subvector exhausted, generate new random seeds for the rest of this branch
@@ -581,10 +256,10 @@ class SeedManager:
                 seed_val = random.randint(0, sys.maxsize)
                 self.current_seed_index += 1
                 _logger.debug(f"Original IN vector exhausted, generating NEW random seed: {seed_val} (idx: {self.current_seed_index-1})")
-        
+
         # Store the seed that was actually used for this choice (for the output seed_vector)
         self.seed_vector_out.append(seed_val)
-        
+
         # Deterministically map the seed to an option
         choice_index = seed_val % num_options
         return options_list[choice_index]
@@ -618,8 +293,8 @@ class _BasePromptGenerator:
     def templateExpand(self, s: str, lookups: dict, reflection: str = "", seed_manager: SeedManager = None):
         "Used internally to replace words with their template lookups."
         if seed_manager is None:
-            seed_manager = SeedManager() 
-            
+            seed_manager = SeedManager()
+
         _split = re.split(r"({[\d:\w]+})", s)
         result = ""
         for word_raw in _split:
@@ -634,24 +309,72 @@ class _BasePromptGenerator:
                     word_key, word_id = tuple(id_parts[:2])
                 else:
                     word_key = word_raw[1:-1]
-                
+
                 # --- Start tracking this non-terminal's branch ---
                 # This is a bit tricky as `templateExpand` handles individual words,
                 # not the overall non-terminal *rule* itself.
                 # However, for our crossover, we need to track the *start of expansion* for a given non-terminal key.
                 # The assumption here is that `word_key` directly maps to a non-terminal in `lookups`.
-                
+
                 # Check if `word_key` is in lookups, meaning it's a non-terminal that will be expanded
                 if word_key in lookups:
                     seed_manager.start_branch(word_key) # Signal start of this non-terminal's branch
                 # --- End tracking setup ---
 
                 if word_id:
-                    if word_key in self.resolutions_dict:
-                        if word_id in self.resolutions_dict[word_key]:
-                            _lookup = self.resolutions_dict[word_key][word_id]
+                    if ((word_key in self.resolutions_dict) and 
+                        (word_id in self.resolutions_dict[word_key])):
+                        _lookup = self.resolutions_dict[word_key][word_id]
+                        _logger.debug(f'\r\n\r\n{_lookup}\r\n\r\n')
+#                    if word_key in self.resolutions_dict:
+#                        if word_id in self.resolutions_dict[word_key]:
+#                            _lookup = self.resolutions_dict[word_key][word_id]
+
+                    # IF THE KEY IS IN A SPECIAL TABLE
+                    # AND IN IT, MAPS TO ANOTHER KEY
+                    # AND THE ID IS IN RESOLUTIONS_DICT UNDER THAT OTHER KEY
+                    # GET THE RESOLUTION FOR THAT OTHER KEY/ID
+                    # THEN LOOK UP THE MAPPING OF THAT RESOLUTION TO
+                    #  SPECIAL OPTIONS IN A TABLE FOR THIS KEY
+                    # E.G.,
+                    #  pronoun:subj -> not in resolutions_dict
+                    #  pronoun -> IS in special table
+                    #   special[pronoun] -> person
+                    #   resolutions_dict[person][subj] = man
+                    #   look up in a table of person->pronoun
+                            
                     else:
-                        self.resolutions_dict[word_key] = {}
+                        _special = [
+                            [t.strip() for t in e.split(':')]
+                            for e in lookups["_special"]
+                        ]
+                        _special = [
+                            [
+                                e[0],
+                                e[1],
+                                ':'.join(e[2:])
+                            ] for e in _special
+                        ]
+                        _specials = {}
+                        for s in _special:
+                            _specials[s[0]] = s[1:]
+                        if (word_key in _specials) and  \
+                           (word_id in self.resolutions_dict[_specials[word_key][0]]):
+                            _dict = json.loads(_specials[word_key][1])
+                            try:
+                                _lookup = _dict[self.resolutions_dict[_specials[word_key][0]][word_id][0]]
+                                if word_key not in self.resolutions_dict:
+                                    self.resolutions_dict[word_key] = {}
+                                self.resolutions_dict[word_key][word_id] = _lookup
+                            except:
+                                if word_key not in self.resolutions_dict:
+                                    self.resolutions_dict[word_key] = {}  # This just means no resolution was found
+                            
+                        else:
+                            if word_key not in self.resolutions_dict:
+                                self.resolutions_dict[word_key] = {}
+#                        self.resolutions_dict[word_key] = {}
+                        
                 if not _lookup:
                     # Use the seed manager for choice instead of random.choice
                     _lookup = seed_manager.get_choice(lookups[word_key])
@@ -670,7 +393,7 @@ class _BasePromptGenerator:
                     else:
                         result = result + _lookup[0]
                         reflection = " " + _lookup[1] + reflection
-                    
+
                 else:  # Otherwise, lookup is just a string
                     if word_id:
                         self.resolutions_dict[word_key][word_id] = _lookup
@@ -681,22 +404,22 @@ class _BasePromptGenerator:
 
                         result = result + _base
                         reflection = " " + _appendices + reflection
-                        
+
                     else:
                         result = result + _lookup
-                
+
                 # --- End tracking this non-terminal's branch ---
                 if word_key in lookups:
                     seed_manager.end_branch() # Signal end of this non-terminal's branch
 
             else:  # Direct pass-through (not a substitution)
-                _lookup = word_raw                
+                _lookup = word_raw
                 if isinstance(_lookup, list): # Should not happen for a direct pass-through unless it's a pre-processed list
                     result = result + _lookup[0]
                     reflection = " " + _lookup[1] + reflection
                 else:
                     result = result + _lookup
-                
+
         return result, reflection
 
     def cleanup(self, string_in: str):
@@ -749,6 +472,70 @@ class _BasePromptGenerator:
                 _result = _raw.replace("+-", "", 1)
             result = _result
         return result
+
+    # REFACTORED: New common method for core prompt generation logic
+    def _core_generate_prompt(
+        self,
+        template_strings: list,
+        lookups: dict,
+        base_negatives: list,
+        seed_manager: SeedManager,
+        strip_parens_probability: float,
+        remove_negatives: bool
+    ) -> HalvedPromptOutput:
+        """
+        Core logic for generating a prompt using a given SeedManager and grammar.
+        This method is intended to be called by derived classes after they've configured
+        their SeedManager appropriately.
+        """
+        temp_resolutions_dict = {}
+        original_resolutions_dict = self.resolutions_dict
+        self.resolutions_dict = temp_resolutions_dict
+
+        seed_manager.start_branch('template')
+        initial_template = seed_manager.get_choice(template_strings)
+        seed_manager.end_branch()
+
+        base, reflection = self.templateExpand(
+            initial_template,
+            lookups=lookups,
+            reflection="",
+            seed_manager=seed_manager
+        )
+        base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager)
+
+        if random.random() < strip_parens_probability:
+            base = re.sub(r"[\(\)+]", "", base, 0)
+            base = re.sub(r"\-+\s", " ", base, 0)
+            base = re.sub(r"\-+,", ",", base, 0)
+            appendices = re.sub(r"[\(\)+]", "", appendices, 0)
+            appendices = re.sub(r"\-+\s", " ", appendices, 0)
+            appendices = re.sub(r"\-+,", ",", appendices, 0)
+        if remove_negatives:
+            base = re.sub(r"\[[^\]\[]*\]", "", base, 0)
+            appendices = re.sub(r"\[[^\]\[]*\]", "", appendices, 0)
+
+        base = self.cleanup(base)
+        appendices = self.cleanup(appendices)
+
+        if not (remove_negatives or (not base_negatives)):
+            seed_manager.start_branch('negative_template')
+            appendices = appendices + " " + seed_manager.get_choice(base_negatives)
+            seed_manager.end_branch()
+
+        result = (base + appendices).strip()
+
+        # Restore original resolutions_dict state
+        self.resolutions_dict = original_resolutions_dict
+
+        return HalvedPromptOutput(
+            prompt=result,
+            part_a=base.strip(),
+            part_b=appendices.strip(),
+            resolutions=json.dumps(temp_resolutions_dict),
+            seed_vector=json.dumps(seed_manager.seed_vector_out)
+        )
+
 
 @invocation(
     "crossover_prompt",
@@ -822,7 +609,7 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
 
     def invoke(self, context: InvocationContext) -> HalvedPromptOutput:
         # Initialize resolutions_dict for this instance (from _BasePromptGenerator)
-        self.resolutions_dict = {} 
+        self.resolutions_dict = {}
 
         # --- Load and prepare lookups and resolutions ---
         resolutions_dict = {}
@@ -866,7 +653,7 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
                 lookups["negatives"] if ("negatives" in lookups) else []
             )
         )
-        
+
         # --- Crossover Logic Setup ---
         parent_a_seeds = json.loads(self.parent_a_seed_vector_in)
         parent_b_seeds = json.loads(self.parent_b_seed_vector_in)
@@ -879,12 +666,12 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
         temp_seed_manager_a = SeedManager(parent_a_seeds)
         # Dummy run to get the trace information
         # Need to re-run the whole generation process to get the trace
-        self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager_a)
+        self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager_a, self.strip_parens_probability, self.remove_negatives)
         parent_a_branch_traces = temp_seed_manager_a.branch_traces
-        
+
         # Trace Parent B
         temp_seed_manager_b = SeedManager(parent_b_seeds)
-        self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager_b)
+        self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager_b, self.strip_parens_probability, self.remove_negatives)
         parent_b_branch_traces = temp_seed_manager_b.branch_traces
 
         # 2. Identify common non-terminals that can be targeted for crossover.
@@ -892,14 +679,14 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
         # Ensure we only pick from non-terminals that actually generated a branch (i.e., have start and end indices)
         valid_a_nts = {t.non_terminal_name for t in parent_a_branch_traces if t.end_seed_index is not None}
         valid_b_nts = {t.non_terminal_name for t in parent_b_branch_traces if t.end_seed_index is not None}
-        
+
         # Include 'template' as a potential non-terminal if it was used to start the generation
         if temp_seed_manager_a.seed_vector_out: # Check if anything was generated
              # The first choice is always for 'template'
-            valid_a_nts.add('template') 
+            valid_a_nts.add('template')
         if temp_seed_manager_b.seed_vector_out:
             valid_b_nts.add('template')
-            
+
         common_nts = list(valid_a_nts.intersection(valid_b_nts))
 
         if not common_nts:
@@ -907,17 +694,21 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
             # Fallback: if no common points, just return one of the parents as the child
             if self.child_a_or_b:
                 generated_seed_vector_json = json.dumps(parent_a_seeds) # No crossover applied
-                return self._generate_prompt_from_seeds(parent_a_seeds, template_strings, lookups, base_negatives)
+                # REFACTORED: Use _core_generate_prompt
+                seed_manager = SeedManager(parent_a_seeds)
+                return self._core_generate_prompt(template_strings, lookups, base_negatives, seed_manager, self.strip_parens_probability, self.remove_negatives)
             else:
                 generated_seed_vector_json = json.dumps(parent_b_seeds) # No crossover applied
-                return self._generate_prompt_from_seeds(parent_b_seeds, template_strings, lookups, base_negatives)
+                # REFACTORED: Use _core_generate_prompt
+                seed_manager = SeedManager(parent_b_seeds)
+                return self._core_generate_prompt(template_strings, lookups, base_negatives, seed_manager, self.strip_parens_probability, self.remove_negatives)
 
         # 3. Choose the crossover non-terminal.
         target_non_terminal = self.crossover_non_terminal
         if target_non_terminal is None or target_non_terminal not in common_nts:
             _logger.info(f"Crossover non-terminal not specified or not valid. Choosing random from: {common_nts}")
             target_non_terminal = random.choice(common_nts)
-        
+
         _logger.info(f"Selected crossover non-terminal: {target_non_terminal}")
 
         # 4. Find the specific branch subvectors for the chosen non-terminal.
@@ -927,21 +718,23 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
             if t.non_terminal_name == target_non_terminal and t.end_seed_index is not None:
                 branch_a_tracker = t
                 break
-        
+
         branch_b_tracker: Optional[SeedManager.SeedBranchTracker] = None
         for t in parent_b_branch_traces:
             if t.non_terminal_name == target_non_terminal and t.end_seed_index is not None:
                 branch_b_tracker = t
                 break
-        
+
         if not (branch_a_tracker and branch_b_tracker):
              _logger.warning(f"Could not find valid branches for '{target_non_terminal}' in both parents. Generating child A from Parent A, Child B from Parent B.")
              if self.child_a_or_b:
-                generated_seed_vector_json = json.dumps(parent_a_seeds) # No crossover applied
-                return self._generate_prompt_from_seeds(parent_a_seeds, template_strings, lookups, base_negatives)
+                # REFACTORED: Use _core_generate_prompt
+                seed_manager = SeedManager(parent_a_seeds)
+                return self._core_generate_prompt(template_strings, lookups, base_negatives, seed_manager, self.strip_parens_probability, self.remove_negatives)
              else:
-                generated_seed_vector_json = json.dumps(parent_b_seeds) # No crossover applied
-                return self._generate_prompt_from_seeds(parent_b_seeds, template_strings, lookups, base_negatives)
+                # REFACTORED: Use _core_generate_prompt
+                seed_manager = SeedManager(parent_b_seeds)
+                return self._core_generate_prompt(template_strings, lookups, base_negatives, seed_manager, self.strip_parens_probability, self.remove_negatives)
 
 
         # Extract the subvectors
@@ -965,7 +758,7 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
             # The rest of Parent A's seeds will be implicitly handled by the SeedManager,
             # which will skip the original Parent A's branch seeds and then resume.
             offspring_initial_seed_vector.extend(parent_a_seeds[branch_a_tracker.end_seed_index:])
-            
+
         else: # Generate Child B (Parent B + A's branch)
             _logger.info("Generating Child B (Parent B + A's branch)")
             offspring_initial_seed_vector.extend(parent_b_seeds[:branch_b_tracker.start_seed_index])
@@ -984,154 +777,44 @@ class CrossoverPromptInvocation(_BasePromptGenerator, BaseInvocation):
             crossover_insertion_point=crossover_insertion_point # This isn't directly used by SeedManager anymore,
                                                                  # but it clarifies the intent for debugging.
         )
-        
-        # Now, perform the generation with this configured seed manager
-        # The initial template choice also happens via get_choice, so it's part of the seed_manager's flow.
-        return self._generate_prompt_from_seeds(
-            seed_vector=(parent_a_seeds if self.child_a_or_b else parent_b_seeds), # The base parent's seeds for initial consumption
-            template_strings=template_strings, 
-            lookups=lookups, 
-            base_negatives=base_negatives, 
-            seed_manager=final_seed_manager, # Pass our custom configured seed manager
-            crossover_target_nt_for_generation=target_non_terminal,
-            crossover_subvector_for_generation=crossover_subvector_to_use
+
+        # REFACTORED: Now calls the common _core_generate_prompt
+        return self._core_generate_prompt(
+            template_strings=template_strings,
+            lookups=lookups,
+            base_negatives=base_negatives,
+            seed_manager=final_seed_manager,
+            strip_parens_probability=self.strip_parens_probability,
+            remove_negatives=self.remove_negatives
         )
 
 
     # Helper method to run a full generation given a SeedManager (for both tracing and final gen)
-    def _run_dummy_generation(self, template_strings: list, lookups: dict, base_negatives: list, seed_manager: SeedManager):
-        """Runs the full prompt generation process to populate seed_manager.branch_traces."""
-        # This resets the resolutions_dict for a clean trace run
-        original_resolutions_dict = self.resolutions_dict
-        self.resolutions_dict = {} 
-
-        # The very first choice (initial_template) for the prompt is also a 'branch'
-        # Let's consider 'template' as the non-terminal for the top-level choice.
-        seed_manager.start_branch('template') # Mark the beginning of the entire template generation
-        initial_template = seed_manager.get_choice(template_strings)
-        seed_manager.end_branch() # Mark the end of the initial template choice itself (not its full expansion)
-
-        base, reflection = self.templateExpand(
-            initial_template,
-            lookups=lookups,
-            reflection="",
-            seed_manager=seed_manager
-        )
-        base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager)
-
-        # Handle other prompt modifications (parens, negatives) which also consume seeds if options
-        if random.random() < self.strip_parens_probability:
-            base = re.sub(r"[\(\)+]", "", base, 0)
-            base = re.sub(r"\-+\s", " ", base, 0)
-            base = re.sub(r"\-+,", ",", base, 0)
-            appendices = re.sub(r"[\(\)+]", "", appendices, 0)
-            appendices = re.sub(r"\-+\s", " ", appendices, 0)
-            appendices = re.sub(r"\-+,", ",", appendices, 0)
-        if self.remove_negatives:
-            base = re.sub(r"\[[^\]\[]*\]", "", base, 0)
-            appendices = re.sub(r"\[[^\]\[]*\]", "", appendices, 0)
-
-        # Cleanup does not consume seeds
-        base = self.cleanup(base)
-        appendices = self.cleanup(appendices)
-
-        if not (self.remove_negatives or (not base_negatives)):
-            seed_manager.start_branch('negative_template') # A special non-terminal for negatives
-            # This choice is directly from get_choice, so it's tracked
-            appendices = appendices + " " + seed_manager.get_choice(base_negatives)
-            seed_manager.end_branch()
-        
-        # Restore original resolutions_dict state
-        self.resolutions_dict = original_resolutions_dict
-        
-        # Note: We don't return the prompt string here, only use this to populate branch_traces.
-        # The actual prompt generation happens in _generate_prompt_from_seeds.
-
-
-    # This method encapsulates the actual prompt generation
-    def _generate_prompt_from_seeds(
-        self, 
-        seed_vector: list, 
-        template_strings: list, 
-        lookups: dict, 
-        base_negatives: list,
-        seed_manager: Optional[SeedManager] = None, # Can be pre-configured for crossover
-        crossover_target_nt_for_generation: Optional[str] = None,
-        crossover_subvector_for_generation: Optional[list] = None
-    ) -> HalvedPromptOutput:
+    # REFACTORED: Now uses _core_generate_prompt's logic for dummy runs
+    def _run_dummy_generation(self, template_strings: list, lookups: dict, base_negatives: list, seed_manager: SeedManager, strip_parens_probability: float, remove_negatives: bool):
         """
-        Generates a prompt using a given seed vector and grammar.
-        Handles crossover integration if seed_manager is pre-configured.
+        Runs the full prompt generation process to populate seed_manager.branch_traces.
+        This method is for tracing only and doesn't return a prompt output.
         """
-        # Ensure resolutions_dict is clean for this specific generation run.
-        # This is crucial because `invoke` and `_run_dummy_generation` modify it.
-        # We need a fresh dict for each *actual* prompt generation.
-        temp_resolutions_dict = {}
-        # Ensure that templateExpand and iterateExpansions use this temp dict
-        # by making it an instance attribute just for the duration of this call
+        # We need to temporarily configure the resolutions_dict for this run
         original_resolutions_dict = self.resolutions_dict
-        self.resolutions_dict = temp_resolutions_dict
+        self.resolutions_dict = {} # Reset for a clean trace run
 
-        if seed_manager is None:
-            # For standard generation (e.g., from original PromptFromLookupTable), or fallback
-            seed_manager = SeedManager(seed_vector)
-        else:
-            # For crossover, the provided seed_manager is already configured
-            # We need to make sure its internal `seed_vector_in` matches the "base" parent
-            # and its current_seed_index is correctly initialized
-            seed_manager.seed_vector_in = seed_vector # The base parent's full seeds
-            seed_manager.current_seed_index = 0
-            # Also, reset its in_crossover_branch flag and subvector index for the actual run
-            seed_manager.in_crossover_branch = False # Will be set to True by start_branch
-            seed_manager.crossover_subvector_index = 0
-            seed_manager.crossover_target_nt = crossover_target_nt_for_generation
-            seed_manager.crossover_subvector = crossover_subvector_for_generation
-
-
-        # The very first choice (initial_template) for the prompt is also a 'branch'
-        seed_manager.start_branch('template')
-        initial_template = seed_manager.get_choice(template_strings)
-        seed_manager.end_branch()
-
-        base, reflection = self.templateExpand(
-            initial_template,
+        # The core generation logic is now in _core_generate_prompt.
+        # We call it here, but we don't care about its return value for tracing.
+        # The important side effect is that seed_manager.branch_traces and seed_manager.seed_vector_out are populated.
+        _ = self._core_generate_prompt(
+            template_strings=template_strings,
             lookups=lookups,
-            reflection="",
-            seed_manager=seed_manager
+            base_negatives=base_negatives,
+            seed_manager=seed_manager,
+            strip_parens_probability=strip_parens_probability,
+            remove_negatives=remove_negatives
         )
-        base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager)
-
-        if random.random() < self.strip_parens_probability:
-            base = re.sub(r"[\(\)+]", "", base, 0)
-            base = re.sub(r"\-+\s", " ", base, 0)
-            base = re.sub(r"\-+,", ",", base, 0)
-            appendices = re.sub(r"[\(\)+]", "", appendices, 0)
-            appendices = re.sub(r"\-+\s", " ", appendices, 0)
-            appendices = re.sub(r"\-+,", ",", appendices, 0)
-        if self.remove_negatives:
-            base = re.sub(r"\[[^\]\[]*\]", "", base, 0)
-            appendices = re.sub(r"\[[^\]\[]*\]", "", appendices, 0)
-
-        base = self.cleanup(base)
-        appendices = self.cleanup(appendices)
-
-        if not (self.remove_negatives or (not base_negatives)):
-            seed_manager.start_branch('negative_template') # A special non-terminal for negatives
-            appendices = appendices + " " + seed_manager.get_choice(base_negatives)
-            seed_manager.end_branch() # End the negative template branch
-
-        result = (base + appendices).strip()
 
         # Restore original resolutions_dict state
         self.resolutions_dict = original_resolutions_dict
 
-        return HalvedPromptOutput(
-            prompt=result,
-            part_a=base.strip(),
-            part_b=appendices.strip(),
-            resolutions=json.dumps(temp_resolutions_dict), # Use the temp dict that was populated
-            seed_vector=json.dumps(seed_manager.seed_vector_out)
-        )
 
 @invocation(
     "generate_evolutionary_prompts",
@@ -1256,7 +939,7 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
                 lookups["negatives"] if ("negatives" in lookups) else []
             )
         )
-        
+
         # --- Parse all incoming parent seed vectors ---
         parsed_parent_seed_vectors: List[List[int]] = [json.loads(s) for s in self.seed_vectors_in]
 
@@ -1276,14 +959,14 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
         _logger.info(f"Tracing {len(parsed_parent_seed_vectors)} parent seed vectors...")
         for i, p_seed_vec in enumerate(parsed_parent_seed_vectors):
             temp_seed_manager = SeedManager(p_seed_vec)
-            self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager)
+            self._run_dummy_generation(template_strings, lookups, base_negatives, temp_seed_manager, self.strip_parens_probability, self.remove_negatives)
             parent_traces[tuple(p_seed_vec)] = temp_seed_manager.branch_traces
-            
+
             valid_nts_for_parent = {t.non_terminal_name for t in temp_seed_manager.branch_traces if t.end_seed_index is not None}
             # Add 'template' if any generation happened for this parent
             if temp_seed_manager.seed_vector_out:
                 valid_nts_for_parent.add('template')
-            
+
             if not all_possible_common_nts:
                 all_possible_common_nts = valid_nts_for_parent
             else:
@@ -1319,8 +1002,10 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
                     {t.non_terminal_name for t in parent_b_trace if t.end_seed_index is not None}
                 )
             )
-            if any(t.seed_vector_out for t in [SeedManager(parent_a_seeds), SeedManager(parent_b_seeds)]):
-                 current_pair_common_nts.add('template') # Add 'template' as a potential common point
+            # REFACTORED: Add 'template' check more robustly
+            if 'template' in ({t.non_terminal_name for t in parent_a_trace} if parent_a_trace else set()) and \
+               'template' in ({t.non_terminal_name for t in parent_b_trace} if parent_b_trace else set()):
+                 current_pair_common_nts.add('template')
 
             # Filter common_nts by the user-specified crossover_non_terminal if provided
             eligible_nts_for_crossover = []
@@ -1328,14 +1013,14 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
                 eligible_nts_for_crossover = [self.crossover_non_terminal]
             else:
                 eligible_nts_for_crossover = list(current_pair_common_nts)
-            
+
             if not eligible_nts_for_crossover:
                 _logger.debug("No common non-terminals for crossover between selected parents. Skipping this pair.")
                 continue # Try another pair of parents
 
             # Choose the crossover non-terminal for this pair
             target_non_terminal = random.choice(eligible_nts_for_crossover)
-            
+
             # Find the specific branch subvectors for the chosen non-terminal.
             # For simplicity, we'll pick the *first* occurrence of the target non-terminal in each trace.
             branch_a_tracker: Optional[SeedManager.SeedBranchTracker] = None
@@ -1343,13 +1028,13 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
                 if t.non_terminal_name == target_non_terminal and t.end_seed_index is not None:
                     branch_a_tracker = t
                     break
-            
+
             branch_b_tracker: Optional[SeedManager.SeedBranchTracker] = None
             for t in parent_b_trace:
                 if t.non_terminal_name == target_non_terminal and t.end_seed_index is not None:
                     branch_b_tracker = t
                     break
-            
+
             if not (branch_a_tracker and branch_b_tracker):
                  _logger.debug(f"Could not find valid branches for '{target_non_terminal}' in both selected parents. Skipping this pair.")
                  continue # Try another pair of parents
@@ -1374,7 +1059,7 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
             new_population_seed_vectors.append(child_a_initial_seed_vector)
             if len(new_population_seed_vectors) < self.target_population_size:
                 new_population_seed_vectors.append(child_b_initial_seed_vector)
-            
+
             _logger.debug(f"Generated {len(new_population_seed_vectors)}/{self.target_population_size} children.")
 
         # --- Generate prompts for the new population ---
@@ -1382,22 +1067,23 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
         for i, child_seed_vector in enumerate(new_population_seed_vectors):
             _logger.debug(f"Generating prompt for child {i+1} with seed vector: {child_seed_vector}")
             # Reset self.resolutions_dict for each new prompt generation
-            self.resolutions_dict = {} 
+            self.resolutions_dict = {}
 
             # Create a fresh SeedManager for each child's actual generation
             # This SeedManager is NOT pre-configured for crossover as the crossover has already
             # been "baked into" the child_seed_vector.
             current_seed_manager = SeedManager(initial_seed_vector=child_seed_vector)
 
-            # Re-use the _generate_prompt_from_seeds helper
-            generated_output = self._generate_prompt_from_seeds(
-                seed_vector=child_seed_vector, # This will be the `initial_seed_vector` for the SeedManager
+            # REFACTORED: Call the common _core_generate_prompt
+            generated_output = self._core_generate_prompt(
                 template_strings=template_strings,
                 lookups=lookups,
                 base_negatives=base_negatives,
-                seed_manager=current_seed_manager # Pass the freshly configured SeedManager
+                seed_manager=current_seed_manager,
+                strip_parens_probability=self.strip_parens_probability,
+                remove_negatives=self.remove_negatives
             )
-            
+
             # Zip prompt and its generated seed vector (which might be longer/shorter than child_seed_vector
             # if random choices were made during generation due to seed vector exhaustion)
             zipped_pair = [generated_output.prompt, generated_output.seed_vector]
@@ -1406,127 +1092,138 @@ class GenerateEvolutionaryPromptsInvocation(_BasePromptGenerator, BaseInvocation
         _logger.info(f"Successfully generated {len(prompt_seed_pairs_output)} evolutionary prompts.")
         return EvolutionaryPromptListOutput(prompt_seed_pairs=prompt_seed_pairs_output, selected_pair=prompt_seed_pairs_output[pair_index])
 
-    def _run_dummy_generation(self, template_strings: list, lookups: dict, base_negatives: list, seed_manager: SeedManager):
-        """Runs the full prompt generation process to populate seed_manager.branch_traces."""
-        # This is essentially a copy of the generate logic, but its purpose is only to populate traces.
-        # It needs to set/reset resolutions_dict to ensure a clean trace.
+    # REFACTORED: This helper now directly uses _core_generate_prompt
+    def _run_dummy_generation(self, template_strings: list, lookups: dict, base_negatives: list, seed_manager: SeedManager, strip_parens_probability: float, remove_negatives: bool):
+        """
+        Runs the full prompt generation process to populate seed_manager.branch_traces.
+        This method is for tracing only and doesn't return a prompt output.
+        """
         original_resolutions_dict = self.resolutions_dict
-        self.resolutions_dict = {} 
+        self.resolutions_dict = {}
 
-        # The very first choice (initial_template) for the prompt is also a 'branch'
-        seed_manager.start_branch('template') 
-        initial_template = seed_manager.get_choice(template_strings)
-        seed_manager.end_branch() 
-
-        base, reflection = self.templateExpand(
-            initial_template,
+        _ = self._core_generate_prompt(
+            template_strings=template_strings,
             lookups=lookups,
-            reflection="",
-            seed_manager=seed_manager
+            base_negatives=base_negatives,
+            seed_manager=seed_manager,
+            strip_parens_probability=strip_parens_probability,
+            remove_negatives=remove_negatives
         )
-        base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager)
 
-        # The following logic for strip_parens_probability, remove_negatives, and base_negatives
-        # also consumes seeds if they involve choices, so it needs to be included in the trace run.
-        if random.random() < self.strip_parens_probability:
-            # These ops don't inherently consume seeds but ensure consistency if the random check passes
-            pass 
-        if self.remove_negatives:
-            pass
-
-        # Cleanup does not consume seeds
-        # base = self.cleanup(base) # Don't need to actually clean up for dummy run
-        # appendices = self.cleanup(appendices)
-
-        if not (self.remove_negatives or (not base_negatives)):
-            seed_manager.start_branch('negative_template') 
-            seed_manager.get_choice(base_negatives) # Just consume the seed
-            seed_manager.end_branch()
-        
-        # Restore original resolutions_dict state
         self.resolutions_dict = original_resolutions_dict
-        
-    def _generate_prompt_from_seeds(
-        self, 
-        seed_vector: list, 
-        template_strings: list, 
-        lookups: dict, 
-        base_negatives: list,
-        seed_manager: Optional[SeedManager] = None, # Can be pre-configured for crossover
-        # The following args are specifically for when the seed_manager is doing the crossover during generation
-        # but in this `evolutionary` node, crossover is done *before* generation, so these are not strictly used
-        # by the SeedManager itself in the final generation phase. Keeping for API consistency if desired.
-        crossover_target_nt_for_generation: Optional[str] = None, 
-        crossover_subvector_for_generation: Optional[list] = None
-    ) -> HalvedPromptOutput:
-        """
-        Generates a prompt using a given seed vector and grammar.
-        Handles crossover integration if seed_manager is pre-configured.
-        """
-        # Ensure resolutions_dict is clean for this specific generation run.
-        temp_resolutions_dict = {}
-        original_resolutions_dict = self.resolutions_dict
-        self.resolutions_dict = temp_resolutions_dict
 
-        if seed_manager is None:
-            seed_manager = SeedManager(seed_vector)
+
+@invocation(
+    "prompt_from_lookup_table",
+    title="Prompt from Lookup Table",
+    tags=["prompt", "lookups", "grammar"],
+    category="prompt",
+    version="1.5.0",
+    use_cache=False,
+)
+class PromptFromLookupTableInvocation(_BasePromptGenerator, BaseInvocation):
+    """Creates prompts using lookup table templates"""
+
+    lookups: Union[str, list[str]] = InputField(
+        description="Lookup table(s) containing template(s) (JSON)",
+        default=[],
+    )
+    remove_negatives: bool = InputField(default=False, description="Whether to strip out text between []")
+    strip_parens_probability: float = InputField(
+        default=0.0, ge=0.0, le=1.0, description="Probability of removing attention group weightings"
+    )
+    resolutions: Union[str, list[str]] = InputField(
+        description="JSON structure of substitutions by id by tag",
+        default=[],
+    )
+    resolutions_dict: dict = InputField(
+        description="Private field for id substitutions dict cache",
+        ui_hidden=True,
+        default={},
+    )
+    seed_vector_in: Optional[str] = InputField(
+        default=None, description="Optional JSON array of seeds for deterministic generation"
+    )
+
+    @validator("lookups")
+    def validate_lookups(cls, v):
+        valid = False
+        if isinstance(v, list):
+            for i in v:
+                loaded = json.loads(i)
+                if ("templates" in loaded) or ("template" in loaded):
+                    valid = True
+                    break
         else:
-            # If a seed_manager is provided (e.g., from invoke()), reset its state for THIS generation.
-            # Crucially, for this evolutionary node, the `seed_vector` *already contains* the crossover.
-            # So, the seed_manager itself should NOT be told to perform another crossover during this final step.
-            seed_manager.seed_vector_in = seed_vector # The base parent's full seeds
-            seed_manager.current_seed_index = 0
-            # Ensure crossover flags are OFF for the *final* generation, as the seeds are pre-mixed.
-            seed_manager.in_crossover_branch = False
-            seed_manager.crossover_subvector_index = 0
-            seed_manager.crossover_target_nt = None # No further crossover at this stage
-            seed_manager.crossover_subvector = None # No further crossover at this stage
-            seed_manager.seed_vector_out = [] # Clear output seeds for this run
+            if (
+                (not (v is None)) and
+                (("templates" in json.loads(v)) or ("template" in json.loads(v)))
+            ):
+                valid = True
+        if (not valid) and (not (len(v) == 0)):
+            raise ValueError("'template' or 'templates' key must be present in lookups")
+        return v
 
-        seed_manager.start_branch('template')
-        initial_template = seed_manager.get_choice(template_strings)
-        seed_manager.end_branch()
+    def invoke(self, context: InvocationContext) -> HalvedPromptOutput:
+        # Initialize resolutions_dict for this instance (from _BasePromptGenerator)
+        self.resolutions_dict = {}
 
-        base, reflection = self.templateExpand(
-            initial_template,
+        resolutions_dict = {}
+        if isinstance(self.resolutions, list):
+            for resolutions_table in reversed(self.resolutions):
+                resolutions_table = json.loads(resolutions_table)
+                for k, v in iter(resolutions_table.items()):
+                    if k not in resolutions_dict:
+                        resolutions_dict[k] = []
+                    resolutions_dict[k].extend(v)
+        else:
+            resolutions_dict = json.loads(self.resolutions)
+        self.resolutions_dict = resolutions_dict # Store in instance attribute for inherited methods
+
+        lookups = {}
+        if isinstance(self.lookups, list):
+            parsed_lookups = []
+            for lookup_table_str in self.lookups:
+                parsed_table = json.loads(lookup_table_str)
+                sort_key = tuple(sorted(parsed_table.items()))
+                parsed_lookups.append((sort_key, parsed_table))
+
+            parsed_lookups.sort(key=lambda x: x[0])
+
+            for sort_key, lookup_table in reversed(parsed_lookups):
+                for k, v in iter(lookup_table.items()):
+                    if k not in lookups:
+                        lookups[k] = []
+                    lookups[k].extend(v)
+        else:
+            lookups = json.loads(self.lookups)
+
+        template_strings = (
+            lookups['template'] if 'template' in lookups else lookups["templates"]
+        )
+        base_negatives = (
+            lookups['negative'] if ('negative' in lookups) else (
+                lookups["negatives"] if ("negatives" in lookups) else []
+            )
+        )
+
+        initial_seed_vector = None
+        if self.seed_vector_in:
+            initial_seed_vector = json.loads(self.seed_vector_in)
+
+        # Instantiate the global SeedManager class with the initial seed vector
+        seed_manager = SeedManager(initial_seed_vector)
+
+        # REFACTORED: Now calls the common _core_generate_prompt
+        return self._core_generate_prompt(
+            template_strings=template_strings,
             lookups=lookups,
-            reflection="",
-            seed_manager=seed_manager
+            base_negatives=base_negatives,
+            seed_manager=seed_manager,
+            strip_parens_probability=self.strip_parens_probability,
+            remove_negatives=self.remove_negatives
         )
-        base, appendices = self.iterateExpansions(base, reflection, lookups, seed_manager)
 
-        # These operations should consume seeds if they involve probabilistic choices
-        if random.random() < self.strip_parens_probability:
-            base = re.sub(r"[\(\)+]", "", base, 0)
-            base = re.sub(r"\-+\s", " ", base, 0)
-            base = re.sub(r"\-+,", ",", base, 0)
-            appendices = re.sub(r"[\(\)+]", "", appendices, 0)
-            appendices = re.sub(r"\-+\s", " ", appendices, 0)
-            appendices = re.sub(r"\-+,", ",", appendices, 0)
-        if self.remove_negatives:
-            base = re.sub(r"\[[^\]\[]*\]", "", base, 0)
-            appendices = re.sub(r"\[[^\]\[]*\]", "", appendices, 0)
-
-        base = self.cleanup(base)
-        appendices = self.cleanup(appendices)
-
-        if not (self.remove_negatives or (not base_negatives)):
-            seed_manager.start_branch('negative_template')
-            appendices = appendices + " " + seed_manager.get_choice(base_negatives)
-            seed_manager.end_branch()
-
-        result = (base + appendices).strip()
-
-        # Restore original resolutions_dict state
-        self.resolutions_dict = original_resolutions_dict
-
-        return HalvedPromptOutput(
-            prompt=result,
-            part_a=base.strip(),
-            part_b=appendices.strip(),
-            resolutions=json.dumps(temp_resolutions_dict),
-            seed_vector=json.dumps(seed_manager.seed_vector_out)
-        )
 
 @invocation_output("json_list_strings_output")
 class JsonListStringsOutput(BaseInvocationOutput):
