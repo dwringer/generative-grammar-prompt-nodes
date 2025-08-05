@@ -347,7 +347,7 @@ class _BasePromptGenerator:
                         _special = [
                             [t.strip() for t in e.split(':')]
                             for e in lookups["_special"]
-                        ]
+                        ] if "_special" in lookups else []
                         _special = [
                             [
                                 e[0],
